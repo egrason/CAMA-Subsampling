@@ -6,6 +6,7 @@
 
 ########### Packages
 library(ggplot2)
+library(dplyr)
 
 
 ########### Data
@@ -22,6 +23,8 @@ ggplot(wb.25, aes(x = "", y = CW_mm)) +
   theme_bw()
 
 
+
+#########Compare Subsamples to mean
 ntot <- nrow(wb.25)
 psamp <- c(0.01, 0.05, 0.10, 0.20, 0.25, 0.50, 0.75, 1)
 nsamp <- as.integer(ntot * psamp)
@@ -52,10 +55,20 @@ subsample_differences_multi <- function(data, subsample_sizes, n_reps) {
   return(results_df)
 }
 
-#Run Sampling function on data
+#Run sampling function on data
 delta.mu <- subsample_differences_multi(wb.25$CW_mm, nsamp, n.iter)
 
 ggplot(delta.mu, aes(x = subsample_size/ntot, y = difference)) +
   geom_point(alpha = 0.5) + 
   theme_bw() +
   labs(x = "Proportion of Crabs Measured", y = "Difference from True Mean (mm)")
+
+
+# Calculate percentages outside range
+summary_df <- delta.mu %>%
+  group_by(as.factor(subsample_size)) %>%
+  summarize(
+    total_count = n(),
+    outside_range_count = sum(difference < -3 | difference > 3),
+    percent_outside = outside_range_count / total_count
+  )
