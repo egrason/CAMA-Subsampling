@@ -29,7 +29,6 @@ mean(wb.25$CW_mm < 35)
 mean(wb.25$CW_mm >70)
 
 
-
 #########Compare Subsamples to mean
 subsample_stats_multi <- function(data, subsample_sizes, n_reps) {
   data <- as.numeric(data)
@@ -39,7 +38,7 @@ subsample_stats_multi <- function(data, subsample_sizes, n_reps) {
   total_mean <- mean(data, na.rm = TRUE)
   total_max <- max(data, na.rm = TRUE)
   total_min <- min(data, na.rm = TRUE)
-  total_var  <- var(data, na.rm = TRUE)
+  total_var  <- var(data, na.rm = TRUE) * (((length(data)) - 1) / (length(data)))
   total_small <- mean(data < 35, na.rm = TRUE)
   total_large <- mean(data >70, na.rm = TRUE)
   
@@ -55,7 +54,7 @@ subsample_stats_multi <- function(data, subsample_sizes, n_reps) {
       s_mean <- mean(subsample)
       s_max  <- max(subsample)
       s_min  <- min(subsample)
-      s_var  <- var(subsample)
+      s_var  <- var(subsample) * (((length(subsample)) - 1) / (length(subsample)))
       s_small <- mean(subsample < 35)
       s_large <- mean(subsample > 70)
       
@@ -95,46 +94,53 @@ pooled.sample <- subsample_stats_multi(wb.25$CW_mm, nsamp, n.iter)
 
 
 ## Plots
-ggplot(delta.mu, aes(x = subsample_size/ntot, y = mean_diff)) +
-  geom_point(alpha = 0.5) + 
-  theme_bw() +
+ggplot(pooled.sample, aes(x = subsample_size/ntot, y = mean_diff)) +
+  geom_jitter(alpha = 0.5) + 
+  theme_bw(base_size = 16) +
   labs(x = "Proportion of Crabs Measured", y = "Difference from True Mean (mm)")
 
-ggplot(delta.mu, aes(x = subsample_size/ntot, y = max_diff)) +
-  geom_point(alpha = 0.5) + 
-  theme_bw() +
+ggplot(pooled.sample, aes(x = subsample_size/ntot, y = max_diff)) +
+  geom_jitter(alpha = 0.5) + 
+  theme_bw(base_size = 16) +
   labs(x = "Proportion of Crabs Measured", y = "Difference from True Max (mm)")
 
-ggplot(delta.mu, aes(x = subsample_size/ntot, y = min_diff)) +
-  geom_point(alpha = 0.5) + 
-  theme_bw() +
-  labs(x = "Proportion of Crabs Measured", y = "Difference from True min (mm)")
+ggplot(pooled.sample, aes(x = subsample_size/ntot, y = min_diff)) +
+  geom_jitter(alpha = 0.5) + 
+  theme_bw(base_size = 16) +
+  labs(x = "Proportion of Crabs Measured", y = "Difference from True Min (mm)")
 
-ggplot(delta.mu, aes(x = subsample_size/ntot, y = var_diff)) +
-  geom_point(alpha = 0.5) + 
-  theme_bw() +
+ggplot(pooled.sample, aes(x = subsample_size/ntot, y = var_diff)) +
+  geom_jitter(alpha = 0.5) + 
+  theme_bw(base_size = 16) +
   labs(x = "Proportion of Crabs Measured", y = "Difference from True Variance (mm)")
 
-ggplot(delta.mu, aes(x = subsample_size/ntot, y = small_dif)) +
-  geom_point(alpha = 0.5) + 
-  theme_bw() +
+ggplot(pooled.sample, aes(x = subsample_size/ntot, y = small_dif)) +
+  geom_jitter(alpha = 0.5) + 
+  theme_bw(base_size = 16) +
   labs(x = "Proportion of Crabs Measured", y = "Difference from True Proportion of Small (mm)")
 
-ggplot(delta.mu, aes(x = subsample_size/ntot, y = large_dif)) +
-  geom_point(alpha = 0.5) + 
-  theme_bw() +
+ggplot(pooled.sample, aes(x = subsample_size/ntot, y = large_dif)) +
+  geom_jitter(alpha = 0.5) + 
+  theme_bw(base_size = 16) +
   labs(x = "Proportion of Crabs Measured", y = "Difference from True Proportion of Large (mm)")
 
 
 # Calculate percentages outside range
-summary_df <- delta.mu %>%
+mean_summary <- pooled.sample %>%
   group_by(as.factor(subsample_size)) %>%
   summarize(
     total_count = n(),
-    outside_range_count = sum(difference < -3 | difference > 3),
+    outside_range_count = sum(mean_diff < -3 | mean_diff > 3),
     percent_outside = outside_range_count / total_count
   )
 
+large_summary <- pooled.sample %>%
+  group_by(as.factor(subsample_size)) %>%
+  summarize(
+    total_count = n(),
+    outside_range_count = sum(large_dif < -0.05 | large_dif > 0.05),
+    percent_outside = outside_range_count / total_count
+  )
 
 
 ######Split by Site
