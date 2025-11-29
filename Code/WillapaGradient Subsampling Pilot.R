@@ -30,67 +30,68 @@ mean(wb.25$CW_mm >70)
 
 
 #########Compare Subsamples to mean
-subsample_stats_multi <- function(data, subsample_sizes, n_reps) {
+subsample_stats_multi <- function(data, subsample_sizes, n_reps, ntrap_vec) {
   data <- as.numeric(data)
   
   # Total ("full") statistics
-  data <- as.numeric(data)
   total_mean <- mean(data, na.rm = TRUE)
-  total_max <- max(data, na.rm = TRUE)
-  total_min <- min(data, na.rm = TRUE)
-  total_var  <- var(data, na.rm = TRUE) * (((length(data)) - 1) / (length(data)))
+  total_max  <- max(data, na.rm = TRUE)
+  total_min  <- min(data, na.rm = TRUE)
+  total_var  <- var(data, na.rm = TRUE) * (((length(data)) - 1) / length(data))
   total_small <- mean(data < 35, na.rm = TRUE)
-  total_large <- mean(data >70, na.rm = TRUE)
+  total_large <- mean(data > 70, na.rm = TRUE)
+  total_small_n <- sum(data < 35, na.rm = TRUE)
+  total_large_n <- sum(data > 70, na.rm = TRUE)
   
-  
-  # Loop over each subsample size
-  results_list <- lapply(subsample_sizes, function(size) {
+  # Loop over each subsample size (using index!)
+  results_list <- lapply(seq_along(subsample_sizes), function(i) {
     
-    # Replicate subsamples
+    size <- subsample_sizes[i]
+    ntrap_val <- ntrap_vec[i]   # assign corresponding ntrap
+    
     replicate_results <- replicate(n_reps, {
       subsample <- sample(data, size = size, replace = FALSE)
       
-      # Compute subsample stats
       s_mean <- mean(subsample)
       s_max  <- max(subsample)
       s_min  <- min(subsample)
-      s_var  <- var(subsample) * (((length(subsample)) - 1) / (length(subsample)))
+      s_var  <- var(subsample) * (((length(subsample)) - 1) / length(subsample))
       s_small <- mean(subsample < 35)
       s_large <- mean(subsample > 70)
+      s_small_n <- sum(subsample < 35)
+      s_large_n <- sum(subsample > 70)
       
-      # Return vector of differences
       c(
-        mean_diff = s_mean - total_mean,
-        max_diff  = s_max  - total_max,
-        min_diff  = s_min  - total_min,
-        var_diff  = s_var  - total_var,
-        small_dif = s_small - total_small,
-        large_dif = s_large - total_large
+        mean_diff  = s_mean - total_mean,
+        max_diff   = s_max  - total_max,
+        min_diff   = s_min  - total_min,
+        var_diff   = s_var  - total_var,
+        small_diff = s_small - total_small,
+        large_diff = s_large - total_large,
+        small_diff_n = s_small_n - total_small_n,
+        large_diff_n = s_large_n - total_large_n
       )
     })
     
-    # Convert each replicate to a row
-    replicate_df <- as.data.frame(t(replicate_results))
-    replicate_df$subsample_size <- size
-    replicate_df$replicate <- seq_len(n_reps)
+    df <- as.data.frame(t(replicate_results))
+    df$subsample_size <- size
+    df$ntrap          <- ntrap_val
+    df$replicate      <- seq_len(n_reps)
     
-    replicate_df
+    df
   })
   
-  # Combine all results
-  results_df <- do.call(rbind, results_list)
-  
-  # Return tidy output
-  return(results_df)
+  do.call(rbind, results_list)
 }
 
 #Run sampling function on data
 ntot <- nrow(wb.25)
 psamp <- c(0.01, 0.05, 0.10, 0.20, 0.25, 0.50, 0.75, 1)
 nsamp <- as.integer(ntot * psamp)
+ntrap <- c(2, 12, 24, 48, 60, 120, 180, 240)
 n.iter <- 1000
 
-pooled.sample <- subsample_stats_multi(wb.25$CW_mm, nsamp, n.iter)
+pooled.sample <- subsample_stats_multi(wb.25$CW_mm, nsamp, n.iter, ntrap)
 
 
 ## Plots
@@ -114,15 +115,46 @@ ggplot(pooled.sample, aes(x = subsample_size/ntot, y = var_diff)) +
   theme_bw(base_size = 16) +
   labs(x = "Proportion of Crabs Measured", y = "Difference from True Variance (mm)")
 
-ggplot(pooled.sample, aes(x = subsample_size/ntot, y = small_dif)) +
+ggplot(pooled.sample, aes(x = subsample_size/ntot, y = small_diff)) +
   geom_jitter(alpha = 0.5) + 
   theme_bw(base_size = 16) +
   labs(x = "Proportion of Crabs Measured", y = "Difference from True Proportion of Small (mm)")
 
-ggplot(pooled.sample, aes(x = subsample_size/ntot, y = large_dif)) +
+ggplot(pooled.sample, aes(x = subsample_size/ntot, y = large_diff)) +
   geom_jitter(alpha = 0.5) + 
   theme_bw(base_size = 16) +
   labs(x = "Proportion of Crabs Measured", y = "Difference from True Proportion of Large (mm)")
+
+ggplot(pooled.sample, aes(x = subsample_size/ntot, y = 100*small_diff_n/240)) +
+  geom_jitter(alpha = 0.5) + 
+  theme_bw(base_size = 16) +
+  labs(x = "Proportion of Crabs Measured", y = "Difference from True Small Crab CPUE (per 100)")
+
+ggplot(pooled.sample, aes(x = subsample_size/ntot, y = 100*large_diff_n/240)) +
+  geom_jitter(alpha = 0.5) + 
+  theme_bw(base_size = 16) +
+  labs(x = "Proportion of Crabs Measured", y = "Difference from True Large Crab CPUE (per 100)")
+
+#total_small_n <- sum(data < 35, na.rm = TRUE)
+#total_large_n <- sum(data > 70, na.rm = TRUE)
+
+
+ggplot(pooled.sample, aes(x = subsample_size/ntot, 
+                          y = 100 * ((100*((sum(wb.25$CW_mm < 35)) + small_diff_n) / ntrap) - (100*(sum(wb.25$CW_mm < 35)/240))) /
+                            (100*(sum(wb.25$CW_mm < 35)/240)) 
+                        )) +
+  geom_jitter(alpha = 0.5) + 
+  theme_bw(base_size = 16) +
+  labs(x = "Proportion of Crabs Measured", y = "Percent Difference from True Small CPUE")
+
+ggplot(pooled.sample, aes(x = subsample_size/ntot, 
+                          y = 100 * ((100*((sum(wb.25$CW_mm >70)) + large_diff_n) / ntrap) - (100*(sum(wb.25$CW_mm > 70)/240))) /
+                            (100*(sum(wb.25$CW_mm > 70)/240)) 
+                          )) +
+  geom_jitter(alpha = 0.5) + 
+  theme_bw(base_size = 16) +
+  labs(x = "Proportion of Crabs Measured", y = "Percent Difference from True Large CPUE")
+
 
 
 # Calculate percentages outside range
@@ -134,11 +166,17 @@ mean_summary <- pooled.sample %>%
     percent_outside = outside_range_count / total_count
   )
 
-large_summary <- pooled.sample %>%
+
+
+CPUE_small_summary <- pooled.sample %>%
   group_by(as.factor(subsample_size)) %>%
   summarize(
     total_count = n(),
-    outside_range_count = sum(large_dif < -0.05 | large_dif > 0.05),
+    outside_range_count = sum(
+      100 * ((100*((sum(wb.25$CW_mm < 35)) + small_diff_n) / ntrap) - (100*(sum(wb.25$CW_mm < 35)/240))) /
+        (100*(sum(wb.25$CW_mm < 35)/240))  < -5 | 
+      100 * ((100*((sum(wb.25$CW_mm < 35)) + small_diff_n) / ntrap) - (100*(sum(wb.25$CW_mm < 35)/240))) /
+        (100*(sum(wb.25$CW_mm < 35)/240))   > 5),
     percent_outside = outside_range_count / total_count
   )
 
