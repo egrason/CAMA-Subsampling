@@ -7,6 +7,8 @@
 ########### Packages
 library(ggplot2)
 library(dplyr)
+library(tidyr)
+library(purrr)
 
 
 ########### Data
@@ -174,11 +176,82 @@ CPUE_small_summary <- pooled.sample %>%
     total_count = n(),
     outside_range_count = sum(
       100 * ((100*((sum(wb.25$CW_mm < 35)) + small_diff_n) / ntrap) - (100*(sum(wb.25$CW_mm < 35)/240))) /
-        (100*(sum(wb.25$CW_mm < 35)/240))  < -5 | 
+        (100*(sum(wb.25$CW_mm < 35)/240))  < -b | 
       100 * ((100*((sum(wb.25$CW_mm < 35)) + small_diff_n) / ntrap) - (100*(sum(wb.25$CW_mm < 35)/240))) /
-        (100*(sum(wb.25$CW_mm < 35)/240))   > 5),
+        (100*(sum(wb.25$CW_mm < 35)/240))   > b),
     percent_outside = outside_range_count / total_count
   )
+
+boundaries <- c(5, 10, 25)
+
+out_of_range <- map_dfr(boundaries, function(b) {
+  pooled.sample %>%
+    group_by(subsample_size) %>%
+    summarise(
+      boundary = b,
+      n_outside = sum(
+        100 * ((100*((sum(wb.25$CW_mm < 35)) + small_diff_n) / ntrap) - (100*(sum(wb.25$CW_mm < 35)/240))) /
+          (100*(sum(wb.25$CW_mm < 35)/240))  < -b | 
+          100 * ((100*((sum(wb.25$CW_mm < 35)) + small_diff_n) / ntrap) - (100*(sum(wb.25$CW_mm < 35)/240))) /
+          (100*(sum(wb.25$CW_mm < 35)/240))   > b),
+      n_total   = n(),
+      prop_outside = n_outside / n_total
+    )
+})
+
+
+#"mean_diff", "var_diff", "small_diff", 
+#"large_diff", "small_diff_n", "large_diff_n"
+
+# Choose variable
+variable_to_test <- "mean_diff"
+
+# Continuous boundaries
+boundary_seq <- seq(1, 25, by = 1)
+
+# Compute prop_outside for each boundary × subsample_size
+out_of_range_surface <- tibble(boundary = boundary_seq) %>%
+  mutate(
+    results = map(boundary, function(bnd) {
+      pooled.sample %>%
+        group_by(subsample_size) %>%
+        summarise(
+          prop_outside = mean(get(variable_to_test) < -bnd | get(variable_to_test) > bnd),
+          .groups = "drop"
+        )
+    })
+  ) %>%
+  unnest(results)
+
+#Plot
+total_crabs <- 701  # total number of crabs
+subsample_sizes <- sort(unique(out_of_range_surface$subsample_size))  # all subsample sizes used
+
+ggplot(out_of_range_surface, aes(x = subsample_size / total_crabs, y = boundary, fill = prop_outside)) +
+  geom_tile() +
+  scale_fill_viridis_c(option = "plasma", name = "Proportion\nOutside") +
+  
+  # Primary x-axis: proportion of crabs measured
+  scale_x_continuous(
+    name = "Proportion of Crabs Measured",
+    
+    # Secondary axis: show only the actual subsample sizes used
+    sec.axis = sec_axis(
+      ~ . * total_crabs, 
+      breaks = subsample_sizes
+    )
+  ) +
+  
+  labs(
+    y = "Boundary",
+    title = paste("Proportion Outside ±Boundary for", variable_to_test)
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    axis.text.x.bottom = element_text(color = "black"),
+    axis.text.x.top = element_text(color = "black", angle = 45, hjust = 1, vjust = 1)
+  )
+
 
 
 ######Split by Site
