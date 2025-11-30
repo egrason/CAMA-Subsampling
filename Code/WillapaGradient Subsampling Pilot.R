@@ -15,13 +15,68 @@ library(purrr)
 wb.25 <- read.csv("~/Documents/GitHub/CAMA-Subsampling/Data/Willapa Gradient Survey 2025.CrabSize.csv")
 wb.25$Site_Name <- as.factor(wb.25$Site_Name)
 
-########### Plots
 
-######Full Sample
+########### Example Plots
+
+n <- 701
+
+# --- 1. Unimodal normal distribution ---
+normal_data <- data.frame(
+  CW_mm = rnorm(n, mean = 53, sd = 2)   # sd controls variance
+)
+
+# --- 2. Bimodal distribution ---
+bimodal_data <- data.frame(
+  CW_mm = c(
+    rnorm(n/2, mean = 73, sd = 5),
+    rnorm(n/2, mean = 33, sd = 5)
+  )
+)
+
+# --- 3. Uniform distribution ---
+uniform_data <- data.frame(
+  CW_mm = runif(n, min = 53 - 20, max = 53 + 20)
+)
+
+make_plot <- function(df, title) {
+  ggplot(df, aes(x = "", y = CW_mm)) +
+    geom_violin() +
+    geom_jitter(width = 0.2, alpha = 0.5) +
+    geom_hline(
+      yintercept = mean(df$CW_mm),
+      color = "black",
+      linewidth = 1,
+      linetype = "solid"
+    ) +
+    ylim(0, 100) +    
+    theme_bw(base_size = 16) +
+    ylab("Crab Size (mm)")
+}
+
+p1 <- make_plot(normal_data)
+p2 <- make_plot(bimodal_data)
+p3 <- make_plot(uniform_data)
+
+p1
+p2
+p3
+
+
+###########################
+#########Pooled Sample (single bucket)
+###########################
+
+######Full Sample Plot - Pooled
 ggplot(wb.25, aes(x = "", y = CW_mm)) +
   geom_violin() + 
-  geom_jitter(aes(width = 0.2, 
-              alpha = 0.5)) + 
+  geom_jitter(width = 0.2, 
+              alpha = 0.5) + 
+  geom_hline(
+    yintercept = mean(wb.25$CW_mm, na.rm = TRUE),
+    color = "black",
+    linewidth = 1,
+    linetype = "solid"
+  ) +
   theme_bw() +
   theme_bw(base_size = 16) +
   guides(alpha = "none") +
@@ -30,8 +85,27 @@ ggplot(wb.25, aes(x = "", y = CW_mm)) +
 mean(wb.25$CW_mm < 35)
 mean(wb.25$CW_mm >70)
 
+set.seed(12)   # optional for reproducibility
 
-#########Compare Subsamples to mean
+wb.25$highlight <- FALSE
+wb.25$highlight[sample(nrow(wb.25), 100)] <- TRUE
+
+ggplot(wb.25, aes(x = "", y = CW_mm)) +
+  geom_violin() +
+  geom_jitter(
+    aes(color = highlight),
+    width = 0.2,
+    alpha = 0.5
+  ) +
+  scale_color_manual(
+    values = c("TRUE" = "red", "FALSE" = "black"),
+    guide = "none"
+  ) +
+  theme_bw(base_size = 16) +
+  ylab("Crab Size (mm)")
+
+###########################
+#########Compare Subsamples of varying sizes to Total Sample
 subsample_stats_multi <- function(data, subsample_sizes, n_reps, ntrap_vec) {
   data <- as.numeric(data)
   
@@ -95,8 +169,10 @@ n.iter <- 1000
 
 pooled.sample <- subsample_stats_multi(wb.25$CW_mm, nsamp, n.iter, ntrap)
 
-
+###########################
 ## Plots
+
+## Absolute difference plots
 ggplot(pooled.sample, aes(x = subsample_size/ntot, y = mean_diff)) +
   geom_jitter(alpha = 0.5) + 
   theme_bw(base_size = 16) +
@@ -137,10 +213,6 @@ ggplot(pooled.sample, aes(x = subsample_size/ntot, y = 100*large_diff_n/240)) +
   theme_bw(base_size = 16) +
   labs(x = "Proportion of Crabs Measured", y = "Difference from True Large Crab CPUE (per 100)")
 
-#total_small_n <- sum(data < 35, na.rm = TRUE)
-#total_large_n <- sum(data > 70, na.rm = TRUE)
-
-
 ggplot(pooled.sample, aes(x = subsample_size/ntot, 
                           y = 100 * ((100*((sum(wb.25$CW_mm < 35)) + small_diff_n) / ntrap) - (100*(sum(wb.25$CW_mm < 35)/240))) /
                             (100*(sum(wb.25$CW_mm < 35)/240)) 
@@ -158,8 +230,10 @@ ggplot(pooled.sample, aes(x = subsample_size/ntot,
   labs(x = "Proportion of Crabs Measured", y = "Percent Difference from True Large CPUE")
 
 
-
+###########################
 # Calculate percentages outside range
+
+##Single factor, Single Boundary - Simple
 mean_summary <- pooled.sample %>%
   group_by(as.factor(subsample_size)) %>%
   summarize(
@@ -168,8 +242,7 @@ mean_summary <- pooled.sample %>%
     percent_outside = outside_range_count / total_count
   )
 
-
-
+##Single factor, Single Boundary - CPUE
 CPUE_small_summary <- pooled.sample %>%
   group_by(as.factor(subsample_size)) %>%
   summarize(
@@ -182,8 +255,9 @@ CPUE_small_summary <- pooled.sample %>%
     percent_outside = outside_range_count / total_count
   )
 
-boundaries <- c(5, 10, 25)
 
+##Single factor - Multiple boundaries - CPUE
+boundaries <- c(5, 10, 25)
 out_of_range <- map_dfr(boundaries, function(b) {
   pooled.sample %>%
     group_by(subsample_size) %>%
@@ -199,12 +273,12 @@ out_of_range <- map_dfr(boundaries, function(b) {
     )
 })
 
-
-#"mean_diff", "var_diff", "small_diff", 
-#"large_diff", "small_diff_n", "large_diff_n"
+##Single Factor - Variable range - Simple
+#"mean_diff", "min_diff", "max_diff", "var_diff", "small_diff", 
+#"large_diff" 
 
 # Choose variable
-variable_to_test <- "mean_diff"
+variable_to_test <- "var_diff"
 
 # Continuous boundaries
 boundary_seq <- seq(1, 25, by = 1)
@@ -223,11 +297,50 @@ out_of_range_surface <- tibble(boundary = boundary_seq) %>%
   ) %>%
   unnest(results)
 
-#Plot
+
+
+
+##Single Factor - Variable range - CPUE
+# CPUE vars: "small_diff_n", "large_diff_n"
+
+# Choose variable
+variable_to_test <- "large_diff_n"
+
+# Continuous boundaries
+boundary_seq <- seq(1, 50, by = 1)
+
+out_of_range_surface <- tibble(boundary = boundary_seq) %>%
+  mutate(
+    results = map(boundary, function(bnd) {
+      pooled.sample %>%
+        group_by(subsample_size) %>%
+        summarise(
+          prop_outside = mean(
+            100 * ((100*((sum(wb.25$CW_mm > 70)) + large_diff_n) / ntrap) - (100*(sum(wb.25$CW_mm > 70)/240))) /
+              (100*(sum(wb.25$CW_mm > 70)/240))  < -bnd | 
+              100 * ((100*((sum(wb.25$CW_mm > 70)) + large_diff_n) / ntrap) - (100*(sum(wb.25$CW_mm > 70)/240))) /
+              (100*(sum(wb.25$CW_mm > 70)/240))   > bnd),
+          .groups = "drop"
+        )
+    })
+  ) %>%
+  unnest(results)
+
+
+#Plot for either of above
 total_crabs <- 701  # total number of crabs
 subsample_sizes <- sort(unique(out_of_range_surface$subsample_size))  # all subsample sizes used
 
-ggplot(out_of_range_surface, aes(x = subsample_size / total_crabs, y = boundary, fill = prop_outside)) +
+ggplot(out_of_range_surface, aes(x = subsample_size / total_crabs, 
+                                 y = boundary, 
+                                 fill = prop_outside)) +
+
+  # Vertical guide lines at each subsample size
+  geom_vline(
+    xintercept = subsample_sizes / total_crabs,
+    color = "grey80",
+    linewidth = 0.3
+  ) +
   geom_tile() +
   scale_fill_viridis_c(option = "plasma", name = "Proportion\nOutside") +
   
@@ -243,14 +356,24 @@ ggplot(out_of_range_surface, aes(x = subsample_size / total_crabs, y = boundary,
   ) +
   
   labs(
-    y = "Boundary",
+    y = "Boundary (Percent Difference)",
     title = paste("Proportion Outside ±Boundary for", variable_to_test)
   ) +
-  theme_minimal(base_size = 14) +
+  theme_bw(base_size = 14) +
   theme(
     axis.text.x.bottom = element_text(color = "black"),
     axis.text.x.top = element_text(color = "black", angle = 45, hjust = 1, vjust = 1)
   )
+
+
+
+###########################
+######### By Trap (sequential)
+###########################
+
+
+
+
 
 
 
