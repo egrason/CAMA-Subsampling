@@ -82,10 +82,10 @@ ggplot(wb.25, aes(x = "", y = CW_mm)) +
   guides(alpha = "none") +
   ylab("Crab Size (mm)") 
 
-mean(wb.25$CW_mm < 35)
-mean(wb.25$CW_mm >70)
+n_small <- mean(wb.25$CW_mm < 35)
+n_large <- mean(wb.25$CW_mm >70)
 
-set.seed(12)   # optional for reproducibility
+set.seed(123)   # optional for reproducibility
 
 wb.25$highlight <- FALSE
 wb.25$highlight[sample(nrow(wb.25), 100)] <- TRUE
@@ -162,9 +162,9 @@ subsample_stats_multi <- function(data, subsample_sizes, n_reps, ntrap_vec) {
 
 #Run sampling function on data
 ntot <- nrow(wb.25)
-psamp <- c(0.01, 0.05, 0.10, 0.20, 0.25, 0.50, 0.75, 1)
+psamp <- c(0.01, 0.05, 0.10, 100/701, 0.20, 0.25, 0.50, 0.75, 1)
 nsamp <- as.integer(ntot * psamp)
-ntrap <- c(2, 12, 24, 48, 60, 120, 180, 240)
+ntrap <- c(2, 12, 24, 34, 48, 60, 120, 180, 240)
 n.iter <- 1000
 
 pooled.sample <- subsample_stats_multi(wb.25$CW_mm, nsamp, n.iter, ntrap)
@@ -238,7 +238,7 @@ mean_summary <- pooled.sample %>%
   group_by(as.factor(subsample_size)) %>%
   summarize(
     total_count = n(),
-    outside_range_count = sum(mean_diff < -3 | mean_diff > 3),
+    outside_range_count = sum(small_diff < -0.1 | small_diff > 0.1),
     percent_outside = outside_range_count / total_count
   )
 
@@ -278,24 +278,24 @@ out_of_range <- map_dfr(boundaries, function(b) {
 #"large_diff" 
 
 # Choose variable
-variable_to_test <- "var_diff"
+variable_to_test <- "large_diff_n"
 
 # Continuous boundaries
-boundary_seq <- seq(1, 25, by = 1)
+boundary_seq <- seq(1, 50, by = 1)
 
 # Compute prop_outside for each boundary × subsample_size
-out_of_range_surface <- tibble(boundary = boundary_seq) %>%
-  mutate(
-    results = map(boundary, function(bnd) {
-      pooled.sample %>%
-        group_by(subsample_size) %>%
-        summarise(
-          prop_outside = mean(get(variable_to_test) < -bnd | get(variable_to_test) > bnd),
-          .groups = "drop"
-        )
-    })
-  ) %>%
-  unnest(results)
+#out_of_range_surface <- tibble(boundary = boundary_seq) %>%
+#  mutate(
+#    results = map(boundary, function(bnd) {
+#      pooled.sample %>%
+#        group_by(subsample_size) %>%
+#        summarise(
+#          prop_outside = mean(get(variable_to_test) < -bnd | get(variable_to_test) > bnd),
+#          .groups = "drop"
+#        )
+#    })
+#  ) %>%
+#  unnest(results)
 
 
 
@@ -304,7 +304,7 @@ out_of_range_surface <- tibble(boundary = boundary_seq) %>%
 # CPUE vars: "small_diff_n", "large_diff_n"
 
 # Choose variable
-variable_to_test <- "large_diff_n"
+variable_to_test <- "small_diff_n"
 
 # Continuous boundaries
 boundary_seq <- seq(1, 50, by = 1)
@@ -316,10 +316,10 @@ out_of_range_surface <- tibble(boundary = boundary_seq) %>%
         group_by(subsample_size) %>%
         summarise(
           prop_outside = mean(
-            100 * ((100*((sum(wb.25$CW_mm > 70)) + large_diff_n) / ntrap) - (100*(sum(wb.25$CW_mm > 70)/240))) /
-              (100*(sum(wb.25$CW_mm > 70)/240))  < -bnd | 
-              100 * ((100*((sum(wb.25$CW_mm > 70)) + large_diff_n) / ntrap) - (100*(sum(wb.25$CW_mm > 70)/240))) /
-              (100*(sum(wb.25$CW_mm > 70)/240))   > bnd),
+            100 * ((100*((sum(wb.25$CW_mm < 35)) + small_diff_n) / ntrap) - (100*(sum(wb.25$CW_mm < 35)/240))) /
+              (100*(sum(wb.25$CW_mm < 35)/240))  < -bnd | 
+              100 * ((100*((sum(wb.25$CW_mm < 35)) + small_diff_n) / ntrap) - (100*(sum(wb.25$CW_mm < 35)/240))) /
+              (100*(sum(wb.25$CW_mm < 35)/240))   > bnd),
           .groups = "drop"
         )
     })
@@ -342,7 +342,9 @@ ggplot(out_of_range_surface, aes(x = subsample_size / total_crabs,
     linewidth = 0.3
   ) +
   geom_tile() +
-  scale_fill_viridis_c(option = "plasma", name = "Proportion\nOutside") +
+  scale_fill_viridis_c(option = "plasma", 
+                       name = "Proportion\nOutside",
+                       limits = c(0,1)) +
   
   # Primary x-axis: proportion of crabs measured
   scale_x_continuous(
@@ -370,10 +372,6 @@ ggplot(out_of_range_surface, aes(x = subsample_size / total_crabs,
 ###########################
 ######### By Trap (sequential)
 ###########################
-
-
-
-
 
 
 
