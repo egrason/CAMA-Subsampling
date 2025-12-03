@@ -368,10 +368,239 @@ ggplot(out_of_range_surface, aes(x = subsample_size / total_crabs,
   )
 
 
-
 ###########################
 ######### By Trap (sequential)
 ###########################
+
+wb.25$Trap_Process_Order <- as.numeric(wb.25$Day+ wb.25$TrapOrder)
+
+target_n <- 100   # example target number
+
+wb_first100 <- wb.25 %>%
+  group_by(Trap_Process_Order) %>%
+  mutate(group_n = n()) %>%              # size of each group
+  ungroup() %>%
+  distinct(Trap_Process_Order, group_n) %>%  # one row per group
+  mutate(cum_n = cumsum(group_n)) %>%        # cumulative count
+  filter(cum_n <= target_n |                  # keep all full groups before threshold
+           lag(cum_n, default = 0) < target_n) %>%  # keep first group that pushes past target
+  inner_join(wb.25, by = "Trap_Process_Order")   # get all rows from selected groups
+
+mean(wb_first100$CW_mm)
+max(wb_first100$CW_mm)
+min(wb_first100$CW_mm)
+var(wb_first100$CW_mm)
+
+n_first_small <- sum(wb_first100$CW_mm < 35)
+n_first_large <- sum(wb_first100$CW_mm >70)
+
+n_first_small *100 / (240 * (100/701))
+
+
+###########################
+######### By Trap (random)
+###########################
+
+sample_whole_traps <- function(df, group_col, target_n, seed = NULL) {
+  
+  if (!is.null(seed)) set.seed(seed)
+  
+  group_col <- rlang::ensym(group_col)   # convert to symbol for tidy eval
+  
+  # count rows per group, randomize group order, accumulate, and select groups
+  selected_groups <- df %>%
+    group_by(!!group_col) %>%
+    mutate(group_n = n()) %>%
+    ungroup() %>%
+    distinct(!!group_col, group_n) %>%
+    sample_frac(1) %>%                       # randomize order
+    mutate(cum_n = cumsum(group_n)) %>%
+    filter(cum_n <= target_n |               # keep all groups before target
+             lag(cum_n, default = 0) < target_n) %>%  # include first group > target
+    pull(!!group_col)
+  
+  # return full rows from selected groups
+  df %>% filter((!!group_col) %in% selected_groups)
+}
+
+repeat_sampling_bind <- function(df, group_col, target_n, reps = 1000, base_seed = NULL) {
+  
+  if (!is.null(base_seed)) set.seed(base_seed)
+  
+  dplyr::bind_rows(
+    lapply(seq_len(reps), function(i) {
+      iter_seed <- if (!is.null(base_seed)) base_seed + i else NULL
+      
+      sample_whole_traps(
+        df = df,
+        group_col = {{group_col}},
+        target_n = target_n,
+        seed = iter_seed
+      ) %>% mutate(iteration = i)
+    })
+  )
+}
+
+randomtrap_samples_df <- repeat_sampling_bind(
+  df = wb.25,
+  group_col = Trap_Process_Order,
+  target_n = 100,
+  reps = 1000,
+  base_seed = 123
+)
+
+iteration_summary <- randomtrap_samples_df %>%
+  group_by(iteration) %>%
+  summarise(
+    mean_CW = mean(CW_mm, na.rm = TRUE),
+    var_CW  = var(CW_mm,  na.rm = TRUE),
+    max_CW  = max(CW_mm,  na.rm = TRUE),
+    min_CW  = min(CW_mm,  na.rm = TRUE)
+  )
+
+full_summary <- wb.25 %>%
+  summarise(
+    full_mean_CW = mean(CW_mm, na.rm = TRUE),
+    full_var_CW  = var(CW_mm,  na.rm = TRUE),
+    full_max_CW  = max(CW_mm,  na.rm = TRUE),
+    full_min_CW  = min(CW_mm,  na.rm = TRUE)
+  )
+
+iteration_with_diff <- iteration_summary %>%
+  bind_cols(full_summary) %>%   # adds full-sample values
+  mutate(
+    diff_mean_CW = mean_CW - full_mean_CW,
+    diff_var_CW  = var_CW  - full_var_CW,
+    diff_max_CW  = max_CW  - full_max_CW,
+    diff_min_CW  = min_CW  - full_min_CW
+  )
+
+####Plots 1
+
+#Compute percent differences from full_summary
+iteration_with_pctdiff <- iteration_summary %>%
+  bind_cols(full_summary) %>%
+  mutate(
+    pctdiff_mean_CW = 100 * (mean_CW - full_mean_CW) / full_mean_CW,
+    pctdiff_var_CW  = 100 * (var_CW  - full_var_CW)  / full_var_CW,
+    pctdiff_max_CW  = 100 * (max_CW  - full_max_CW)  / full_max_CW,
+    pctdiff_min_CW  = 100 * (min_CW  - full_min_CW)  / full_min_CW
+  )
+
+#Convert to long format for easier processing
+iter_pct_long <- iteration_with_pctdiff %>%
+  select(
+    iteration,
+    pctdiff_mean_CW,
+    pctdiff_var_CW,
+    pctdiff_max_CW,
+    pctdiff_min_CW
+  ) %>%
+  tidyr::pivot_longer(
+    cols = -iteration,
+    names_to = "variable",
+    values_to = "pct_diff"
+  )
+
+#Define continuous boundary ranges for percent difference
+range_defs <- tibble::tribble(
+  ~variable,           ~min_bound, ~max_bound,
+  "pctdiff_mean_CW",        0,         15,
+  "pctdiff_var_CW",         0,         50,
+  "pctdiff_max_CW",         0,         20,
+  "pctdiff_min_CW",         0,         200
+)
+
+#Create a continuous grid of boundary values
+bound_grid <- range_defs %>%
+  rowwise() %>%
+  mutate(bound_seq = list(seq(min_bound, max_bound, length.out = 100))) %>%
+  tidyr::unnest(bound_seq) %>%
+  rename(bound = bound_seq)
+
+#Combine percent-differences with boundaries
+surface_df <- map_dfr(
+  split(iter_pct_long, iter_pct_long$variable),
+  function(df_var) {
+    
+    this_var <- unique(df_var$variable)
+    
+    # Filter correct bound row for this variable, then DROP the 'variable' column
+    bounds_var <- bound_grid %>%
+      filter(variable == this_var) %>%
+      select(-variable)   # <<< IMPORTANT FIX
+    
+    # Cartesian product for this variable only
+    tidyr::crossing(df_var, bounds_var) %>%
+      group_by(variable, bound) %>%
+      summarise(
+        percent_outside = mean(abs(pct_diff) > bound) * 100,
+        .groups = "drop"
+      )
+  }
+)
+
+make_surface_strip_plot <- function(df, varname) {
+  
+  # Ensure the data is sorted by boundary
+  df <- df %>% arrange(bound)
+  
+  # Interpolate the boundary where percent_outside = 5%
+  # approx() returns the y-value (boundary) corresponding to xout = 5
+  if (any(df$percent_outside >= 5)) {
+    line_bound <- approx(
+      x = df$percent_outside,
+      y = df$bound,
+      xout = 5
+    )$y
+  } else {
+    line_bound <- NA
+  }
+  
+  ggplot(df, aes(
+    y = bound,
+    x = 1,
+    fill = percent_outside
+  )) +
+    geom_tile(width = 0.5) +
+    scale_fill_viridis_c(
+      option = "plasma",
+      limits = c(0, 100),
+      oob = scales::squish
+    ) +
+    # Draw horizontal line at the boundary corresponding to 5% outside
+    {if (!is.na(line_bound)) geom_hline(yintercept = line_bound, color = "blue", linetype = "dashed", linewidth = 1)} +
+    theme_bw(base_size = 14) +
+    labs(
+      title = paste("Percent Outside vs Boundary:", varname),
+      y = "Boundary (Percent Difference)",
+      x = NULL,
+      fill = "% Outside"
+    ) +
+    theme(
+      axis.text.x = element_blank(),
+      axis.ticks.x = element_blank(),
+      panel.grid.major.x = element_blank(),
+      panel.grid.minor.x = element_blank()
+    )
+}
+
+variables <- unique(surface_df$variable)
+
+plot_list <- lapply(
+  variables,
+  function(v) {
+    df_var <- surface_df %>% filter(variable == v)
+    make_surface_strip_plot(df_var, v)
+  }
+)
+
+names(plot_list) <- variables
+
+plot_list$pctdiff_mean_CW
+plot_list$pctdiff_max_CW
+plot_list$pctdiff_var_CW
+plot_list$pctdiff_min_CW
 
 
 
