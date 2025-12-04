@@ -278,24 +278,24 @@ out_of_range <- map_dfr(boundaries, function(b) {
 #"large_diff" 
 
 # Choose variable
-variable_to_test <- "large_diff_n"
+variable_to_test <- "var_diff"
 
 # Continuous boundaries
 boundary_seq <- seq(1, 50, by = 1)
 
 # Compute prop_outside for each boundary × subsample_size
-#out_of_range_surface <- tibble(boundary = boundary_seq) %>%
-#  mutate(
-#    results = map(boundary, function(bnd) {
-#      pooled.sample %>%
-#        group_by(subsample_size) %>%
-#        summarise(
-#          prop_outside = mean(get(variable_to_test) < -bnd | get(variable_to_test) > bnd),
-#          .groups = "drop"
-#        )
-#    })
-#  ) %>%
-#  unnest(results)
+out_of_range_surface <- tibble(boundary = boundary_seq) %>%
+  mutate(
+    results = map(boundary, function(bnd) {
+      pooled.sample %>%
+        group_by(subsample_size) %>%
+        summarise(
+          prop_outside = mean(get(variable_to_test) < -bnd | get(variable_to_test) > bnd),
+          .groups = "drop"
+        )
+    })
+  ) %>%
+  unnest(results)
 
 
 
@@ -304,7 +304,7 @@ boundary_seq <- seq(1, 50, by = 1)
 # CPUE vars: "small_diff_n", "large_diff_n"
 
 # Choose variable
-variable_to_test <- "small_diff_n"
+variable_to_test <- "large_diff_n"
 
 # Continuous boundaries
 boundary_seq <- seq(1, 50, by = 1)
@@ -316,10 +316,10 @@ out_of_range_surface <- tibble(boundary = boundary_seq) %>%
         group_by(subsample_size) %>%
         summarise(
           prop_outside = mean(
-            100 * ((100*((sum(wb.25$CW_mm < 35)) + small_diff_n) / ntrap) - (100*(sum(wb.25$CW_mm < 35)/240))) /
-              (100*(sum(wb.25$CW_mm < 35)/240))  < -bnd | 
-              100 * ((100*((sum(wb.25$CW_mm < 35)) + small_diff_n) / ntrap) - (100*(sum(wb.25$CW_mm < 35)/240))) /
-              (100*(sum(wb.25$CW_mm < 35)/240))   > bnd),
+            100 * ((100*((sum(wb.25$CW_mm >70)) + large_diff_n) / ntrap) - (100*(sum(wb.25$CW_mm >70)/240))) /
+              (100*(sum(wb.25$CW_mm >70)/240))  < -bnd | 
+              100 * ((100*((sum(wb.25$CW_mm >70)) + large_diff_n) / ntrap) - (100*(sum(wb.25$CW_mm >70)/240))) /
+              (100*(sum(wb.25$CW_mm >70)/240))   > bnd),
           .groups = "drop"
         )
     })
@@ -368,13 +368,58 @@ ggplot(out_of_range_surface, aes(x = subsample_size / total_crabs,
   )
 
 
+#Plot just for 14.3%/100 crabs
+
+target_n <- 100
+
+filtered_surface <- out_of_range_surface %>%
+  filter(subsample_size == target_n)
+
+filtered_surface <- filtered_surface %>%
+  mutate(prop_pct = prop_outside * 100)
+
+# Find the boundary where percent = 5%
+bnd_5pct <- filtered_surface$boundary[which.min(abs(filtered_surface$prop_pct - 5))]
+
+ggplot(filtered_surface,
+       aes(y = boundary, fill = prop_pct)) +
+  
+  # filled ribbon spanning fake x-range
+  geom_ribbon(aes(xmin = -1, xmax = 1), color = NA) +
+  
+  # color ramp fixed 0–100%
+  scale_fill_viridis_c(
+    option = "plasma",
+    name = "% Outside",
+    limits = c(0, 100)
+  ) +
+  
+  # 5% horizontal line
+  geom_hline(yintercept = bnd_5pct, 
+             linetype = "dashed", 
+             color = "orange", 
+             linewidth = 0.7) +
+  
+  scale_x_continuous(expand = c(0, 0)) +
+  labs(
+    title = "Proportion Outside Boundary at 14.3% Subsample",
+    y = "Boundary (mm Difference)",
+    x = NULL
+  ) +
+  
+  theme_bw(14) +
+  theme(
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank()
+  )
+
 ###########################
 ######### By Trap (sequential)
 ###########################
 
 wb.25$Trap_Process_Order <- as.numeric(wb.25$Day+ wb.25$TrapOrder)
 
-target_n <- 100   # example target number
+target_n <- 100   # target min number of crabs
 
 wb_first100 <- wb.25 %>%
   group_by(Trap_Process_Order) %>%
